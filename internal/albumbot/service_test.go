@@ -18,11 +18,11 @@ import (
 )
 
 type stubResolver struct {
-	resolutions map[string]*ariadne.Resolution
+	resolutions map[string]*ariadne.EntityResolution
 	errs        map[string]error
 }
 
-func (s stubResolver) ResolveAlbum(_ context.Context, inputURL string) (*ariadne.Resolution, error) {
+func (s stubResolver) Resolve(_ context.Context, inputURL string) (*ariadne.EntityResolution, error) {
 	if err, ok := s.errs[inputURL]; ok {
 		return nil, err
 	}
@@ -31,6 +31,14 @@ func (s stubResolver) ResolveAlbum(_ context.Context, inputURL string) (*ariadne
 		return nil, errors.New("unexpected url")
 	}
 	return resolution, nil
+}
+
+func albumEntity(resolution *ariadne.Resolution) *ariadne.EntityResolution {
+	return &ariadne.EntityResolution{Parsed: resolution.Parsed, Album: resolution}
+}
+
+func songEntity(resolution *ariadne.SongResolution) *ariadne.EntityResolution {
+	return &ariadne.EntityResolution{Parsed: resolution.Parsed, Song: resolution}
 }
 
 func TestBuildReplyNoURL(t *testing.T) {
@@ -45,12 +53,12 @@ func TestBuildReplyNoURL(t *testing.T) {
 	}
 }
 
-func TestBuildReplyFormatsLinks(t *testing.T) {
+func TestBuildReplyFormatsAlbumLinks(t *testing.T) {
 	const url = "https://open.spotify.com/album/example"
 
 	service := New(stubResolver{
-		resolutions: map[string]*ariadne.Resolution{
-			url: {
+		resolutions: map[string]*ariadne.EntityResolution{
+			url: albumEntity(&ariadne.Resolution{
 				InputURL: url,
 				Parsed: ariadne.ParsedAlbumURL{
 					Service:      ariadne.ServiceSpotify,
@@ -69,7 +77,7 @@ func TestBuildReplyFormatsLinks(t *testing.T) {
 						Best: &ariadne.ScoredMatch{URL: "https://music.youtube.com/playlist?list=PL123"},
 					},
 				},
-			},
+			}),
 		},
 	}, discardLogger())
 
@@ -81,6 +89,48 @@ func TestBuildReplyFormatsLinks(t *testing.T) {
 	want := strings.Join([]string{
 		"<b>Artist &lt;One&gt; — Best &amp; Loud</b>",
 		`<a href="https://artist.bandcamp.com/album/best-and-loud">Bandcamp</a> | <a href="https://open.spotify.com/album/example">Spotify</a> | <a href="https://music.youtube.com/playlist?list=PL123">YouTube Music</a>`,
+	}, "\n")
+	if reply != want {
+		t.Fatalf("BuildReply() reply = %q, want %q", reply, want)
+	}
+}
+
+func TestBuildReplyFormatsSongLinks(t *testing.T) {
+	const url = "https://open.spotify.com/track/example"
+
+	service := New(stubResolver{
+		resolutions: map[string]*ariadne.EntityResolution{
+			url: songEntity(&ariadne.SongResolution{
+				InputURL: url,
+				Parsed: ariadne.ParsedSongURL{
+					Service:      ariadne.ServiceSpotify,
+					CanonicalURL: url,
+				},
+				Source: ariadne.CanonicalSong{
+					Title:     "Best Song",
+					Artists:   []string{"Artist <One>"},
+					SourceURL: url,
+				},
+				Matches: map[ariadne.ServiceName]ariadne.SongMatchResult{
+					ariadne.ServiceAppleMusic: {
+						Best: &ariadne.SongScoredMatch{URL: "https://music.apple.com/us/song/best-song/1"},
+					},
+					ariadne.ServiceTIDAL: {
+						Best: &ariadne.SongScoredMatch{URL: "https://tidal.com/track/123"},
+					},
+				},
+			}),
+		},
+	}, discardLogger())
+
+	reply, ok := service.BuildReply(context.Background(), "check "+url)
+	if !ok {
+		t.Fatal("BuildReply() ok = false, want true")
+	}
+
+	want := strings.Join([]string{
+		"<b>Artist &lt;One&gt; — Best Song</b>",
+		`<a href="https://music.apple.com/us/song/best-song/1">Apple Music</a> | <a href="https://open.spotify.com/track/example">Spotify</a> | <a href="https://tidal.com/track/123">TIDAL</a>`,
 	}, "\n")
 	if reply != want {
 		t.Fatalf("BuildReply() reply = %q, want %q", reply, want)
@@ -99,7 +149,7 @@ func TestBuildReplyHandlesUnsupportedURL(t *testing.T) {
 		t.Fatal("BuildReply() ok = false, want true")
 	}
 
-	want := "Could not resolve album link:\n<code>https://example.com/not-supported</code>"
+	want := "Could not resolve music link:\n<code>https://example.com/not-supported</code>"
 	if reply != want {
 		t.Fatalf("BuildReply() reply = %q, want %q", reply, want)
 	}
@@ -109,13 +159,13 @@ func TestBuildReplyDeduplicatesURLsAndTrimsPunctuation(t *testing.T) {
 	const url = "https://www.deezer.com/album/12047952"
 
 	service := New(stubResolver{
-		resolutions: map[string]*ariadne.Resolution{
-			url: {
+		resolutions: map[string]*ariadne.EntityResolution{
+			url: albumEntity(&ariadne.Resolution{
 				InputURL: url,
 				Parsed:   ariadne.ParsedAlbumURL{Service: ariadne.ServiceDeezer, CanonicalURL: url},
 				Source:   ariadne.CanonicalAlbum{Title: "Album", SourceURL: url},
 				Matches:  map[ariadne.ServiceName]ariadne.MatchResult{},
-			},
+			}),
 		},
 	}, discardLogger())
 
@@ -141,15 +191,15 @@ func TestHandleDefaultSendsReply(t *testing.T) {
 
 	botClient := newTestBot(t, recorder.server)
 	service := New(stubResolver{
-		resolutions: map[string]*ariadne.Resolution{
-			url: {
+		resolutions: map[string]*ariadne.EntityResolution{
+			url: albumEntity(&ariadne.Resolution{
 				InputURL: url,
 				Parsed:   ariadne.ParsedAlbumURL{Service: ariadne.ServiceSpotify, CanonicalURL: url},
 				Source:   ariadne.CanonicalAlbum{Title: "Album", Artists: []string{"Artist"}, SourceURL: url},
 				Matches: map[ariadne.ServiceName]ariadne.MatchResult{
 					ariadne.ServiceBandcamp: {Best: &ariadne.ScoredMatch{URL: "https://artist.bandcamp.com/album/example"}},
 				},
-			},
+			}),
 		},
 	}, discardLogger())
 
@@ -260,7 +310,7 @@ func TestResolveSectionHandlesAmazonDeferred(t *testing.T) {
 	}, discardLogger())
 
 	got := service.resolveSection(context.Background(), "https://music.amazon.com/albums/example")
-	want := "Amazon Music album links not supported yet:\n<code>https://music.amazon.com/albums/example</code>"
+	want := "Amazon Music links not supported yet:\n<code>https://music.amazon.com/albums/example</code>"
 	if got != want {
 		t.Fatalf("resolveSection() = %q, want %q", got, want)
 	}
@@ -387,14 +437,51 @@ func TestAlbumHeading(t *testing.T) {
 	}
 }
 
+func TestSongHeading(t *testing.T) {
+	tests := []struct {
+		name string
+		song ariadne.CanonicalSong
+		want string
+	}{
+		{
+			name: "artist and title",
+			song: ariadne.CanonicalSong{Artists: []string{"Artist"}, Title: "Song"},
+			want: "<b>Artist — Song</b>",
+		},
+		{
+			name: "title only",
+			song: ariadne.CanonicalSong{Title: "Song"},
+			want: "<b>Song</b>",
+		},
+		{
+			name: "artist only",
+			song: ariadne.CanonicalSong{Artists: []string{"Artist"}},
+			want: "<b>Artist</b>",
+		},
+		{
+			name: "empty",
+			song: ariadne.CanonicalSong{},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := songHeading(tt.song); got != tt.want {
+				t.Fatalf("songHeading() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFormatResolutionWithoutHeading(t *testing.T) {
-	resolution := &ariadne.Resolution{
+	resolution := albumEntity(&ariadne.Resolution{
 		InputURL: "https://example.com/album",
 		Parsed:   ariadne.ParsedAlbumURL{Service: ariadne.ServiceSpotify, CanonicalURL: "https://example.com/album"},
 		Matches: map[ariadne.ServiceName]ariadne.MatchResult{
 			ariadne.ServiceBandcamp: {Best: &ariadne.ScoredMatch{URL: "https://artist.bandcamp.com/album/example"}},
 		},
-	}
+	})
 
 	got := formatResolution(resolution)
 	want := `<a href="https://artist.bandcamp.com/album/example">Bandcamp</a> | <a href="https://example.com/album">Spotify</a>`
@@ -403,14 +490,42 @@ func TestFormatResolutionWithoutHeading(t *testing.T) {
 	}
 }
 
+func TestFormatSongResolutionWithoutHeading(t *testing.T) {
+	resolution := songEntity(&ariadne.SongResolution{
+		InputURL: "https://example.com/song",
+		Parsed:   ariadne.ParsedSongURL{Service: ariadne.ServiceSpotify, CanonicalURL: "https://example.com/song"},
+		Matches: map[ariadne.ServiceName]ariadne.SongMatchResult{
+			ariadne.ServiceAppleMusic: {Best: &ariadne.SongScoredMatch{URL: "https://music.apple.com/us/song/example/1"}},
+		},
+	})
+
+	got := formatResolution(resolution)
+	want := `<a href="https://music.apple.com/us/song/example/1">Apple Music</a> | <a href="https://example.com/song">Spotify</a>`
+	if got != want {
+		t.Fatalf("formatResolution() = %q, want %q", got, want)
+	}
+}
+
 func TestCollectLinksFallsBackToInputURL(t *testing.T) {
-	links := collectLinks(&ariadne.Resolution{
+	links := collectLinks(albumEntity(&ariadne.Resolution{
 		InputURL: "https://example.com/album",
 		Parsed:   ariadne.ParsedAlbumURL{Service: ariadne.ServiceSpotify},
 		Matches:  map[ariadne.ServiceName]ariadne.MatchResult{},
-	})
+	}))
 
 	if got := links[ariadne.ServiceSpotify]; got != "https://example.com/album" {
+		t.Fatalf("collectLinks() source = %q, want input url", got)
+	}
+}
+
+func TestCollectSongLinksFallsBackToInputURL(t *testing.T) {
+	links := collectLinks(songEntity(&ariadne.SongResolution{
+		InputURL: "https://example.com/song",
+		Parsed:   ariadne.ParsedSongURL{Service: ariadne.ServiceSpotify},
+		Matches:  map[ariadne.ServiceName]ariadne.SongMatchResult{},
+	}))
+
+	if got := links[ariadne.ServiceSpotify]; got != "https://example.com/song" {
 		t.Fatalf("collectLinks() source = %q, want input url", got)
 	}
 }
@@ -424,13 +539,13 @@ func TestHandleDefaultLogsRequest(t *testing.T) {
 	botClient := newTestBot(t, recorder.server)
 	logger, output := bufferLogger()
 	service := New(stubResolver{
-		resolutions: map[string]*ariadne.Resolution{
-			url: {
+		resolutions: map[string]*ariadne.EntityResolution{
+			url: albumEntity(&ariadne.Resolution{
 				InputURL: url,
 				Parsed:   ariadne.ParsedAlbumURL{Service: ariadne.ServiceSpotify, CanonicalURL: url},
 				Source:   ariadne.CanonicalAlbum{Title: "Album", SourceURL: url},
 				Matches:  map[ariadne.ServiceName]ariadne.MatchResult{},
-			},
+			}),
 		},
 	}, logger)
 

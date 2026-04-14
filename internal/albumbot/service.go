@@ -28,16 +28,16 @@ var defaultServiceOrder = []ariadne.ServiceName{
 	ariadne.ServiceAmazonMusic,
 }
 
-type albumResolver interface {
-	ResolveAlbum(ctx context.Context, inputURL string) (*ariadne.Resolution, error)
+type entityResolver interface {
+	Resolve(ctx context.Context, inputURL string) (*ariadne.EntityResolution, error)
 }
 
 type Service struct {
-	resolver albumResolver
+	resolver entityResolver
 	logger   *slog.Logger
 }
 
-func New(resolver albumResolver, logger *slog.Logger) *Service {
+func New(resolver entityResolver, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -142,7 +142,7 @@ func (s *Service) BuildReply(ctx context.Context, text string) (string, bool) {
 }
 
 func (s *Service) resolveSection(ctx context.Context, rawURL string) string {
-	resolution, err := s.resolver.ResolveAlbum(ctx, rawURL)
+	resolution, err := s.resolver.Resolve(ctx, rawURL)
 	if err == nil {
 		return formatResolution(resolution)
 	}
@@ -151,17 +151,26 @@ func (s *Service) resolveSection(ctx context.Context, rawURL string) string {
 
 	switch {
 	case errors.Is(err, ariadne.ErrUnsupportedURL):
-		return fmt.Sprintf("Could not resolve album link:\n<code>%s</code>", escapedURL)
+		return fmt.Sprintf("Could not resolve music link:\n<code>%s</code>", escapedURL)
 	case errors.Is(err, ariadne.ErrAmazonMusicDeferred):
-		return fmt.Sprintf("Amazon Music album links not supported yet:\n<code>%s</code>", escapedURL)
+		return fmt.Sprintf("Amazon Music links not supported yet:\n<code>%s</code>", escapedURL)
 	default:
-		s.logger.Error("resolve album failed", "error", err, "url", rawURL)
+		s.logger.Error("resolve music failed", "error", err, "url", rawURL)
 		return fmt.Sprintf("Resolution failed right now:\n<code>%s</code>", escapedURL)
 	}
 }
 
-func formatResolution(resolution *ariadne.Resolution) string {
-	heading := albumHeading(resolution.Source)
+func formatResolution(resolution *ariadne.EntityResolution) string {
+	var heading string
+	switch {
+	case resolution == nil:
+		return ""
+	case resolution.Song != nil:
+		heading = songHeading(resolution.Song.Source)
+	case resolution.Album != nil:
+		heading = albumHeading(resolution.Album.Source)
+	}
+
 	links := formatLinks(collectLinks(resolution))
 	if heading == "" {
 		return links
@@ -170,8 +179,16 @@ func formatResolution(resolution *ariadne.Resolution) string {
 }
 
 func albumHeading(album ariadne.CanonicalAlbum) string {
-	artist := strings.TrimSpace(strings.Join(album.Artists, ", "))
-	title := strings.TrimSpace(album.Title)
+	return artistTitleHeading(album.Artists, album.Title)
+}
+
+func songHeading(song ariadne.CanonicalSong) string {
+	return artistTitleHeading(song.Artists, song.Title)
+}
+
+func artistTitleHeading(artists []string, title string) string {
+	artist := strings.TrimSpace(strings.Join(artists, ", "))
+	title = strings.TrimSpace(title)
 
 	switch {
 	case artist != "" && title != "":
@@ -185,7 +202,46 @@ func albumHeading(album ariadne.CanonicalAlbum) string {
 	}
 }
 
-func collectLinks(resolution *ariadne.Resolution) map[ariadne.ServiceName]string {
+func collectLinks(resolution *ariadne.EntityResolution) map[ariadne.ServiceName]string {
+	switch {
+	case resolution == nil:
+		return nil
+	case resolution.Song != nil:
+		return collectSongLinks(resolution.Song)
+	case resolution.Album != nil:
+		return collectAlbumLinks(resolution.Album)
+	default:
+		return nil
+	}
+}
+
+func collectAlbumLinks(resolution *ariadne.Resolution) map[ariadne.ServiceName]string {
+	links := make(map[ariadne.ServiceName]string, len(resolution.Matches)+1)
+
+	sourceURL := firstNonEmpty(
+		resolution.Source.SourceURL,
+		resolution.Parsed.CanonicalURL,
+		resolution.InputURL,
+	)
+	if sourceURL != "" {
+		links[resolution.Parsed.Service] = sourceURL
+	}
+
+	for service, match := range resolution.Matches {
+		if match.Best == nil {
+			continue
+		}
+		url := strings.TrimSpace(match.Best.URL)
+		if url == "" {
+			continue
+		}
+		links[service] = url
+	}
+
+	return links
+}
+
+func collectSongLinks(resolution *ariadne.SongResolution) map[ariadne.ServiceName]string {
 	links := make(map[ariadne.ServiceName]string, len(resolution.Matches)+1)
 
 	sourceURL := firstNonEmpty(
@@ -379,6 +435,6 @@ func boolPtr(value bool) *bool {
 }
 
 const (
-	startText = "Hi! I can find matching album links across music services.\n\nSend album link from Apple Music, Bandcamp, Deezer, SoundCloud, Spotify, TIDAL, or YouTube Music."
-	helpText  = "Send album link from Apple Music, Bandcamp, Deezer, SoundCloud, Spotify, TIDAL, or YouTube Music.\n\nI will reply with matching links like Apple Music | Bandcamp | Spotify | YouTube Music."
+	startText = "Hi! I can find matching song and album links across music services.\n\nSend song link from Apple Music, Bandcamp, Deezer, SoundCloud, Spotify, or TIDAL.\nSend album link from Apple Music, Bandcamp, Deezer, SoundCloud, Spotify, TIDAL, or YouTube Music."
+	helpText  = "Send song link from Apple Music, Bandcamp, Deezer, SoundCloud, Spotify, or TIDAL.\nSend album link from Apple Music, Bandcamp, Deezer, SoundCloud, Spotify, TIDAL, or YouTube Music.\n\nI will reply with matching links like Apple Music | Bandcamp | Spotify | YouTube Music."
 )

@@ -1,8 +1,8 @@
 # ariadne-telegram-bot
 
-Telegram bot in Go. Uses [`github.com/go-telegram/bot`](https://github.com/go-telegram/bot) for Telegram transport and [`github.com/xmbshwll/ariadne`](https://github.com/xmbshwll/ariadne) for album resolution.
+Telegram bot in Go. Uses [`github.com/go-telegram/bot`](https://github.com/go-telegram/bot) for Telegram transport and [`github.com/xmbshwll/ariadne`](https://github.com/xmbshwll/ariadne) for music resolution.
 
-User sends album link from supported music service. Bot replies with clickable service-name links separated by ` | `.
+User sends song or album link from supported music service. Bot replies with clickable service-name links separated by ` | `.
 
 Example reply:
 
@@ -22,11 +22,20 @@ Album links from services Ariadne can resolve at runtime today:
 - TIDAL
 - YouTube Music
 
-Bot currently resolves **albums only**.
+Song links from services Ariadne can resolve at runtime today:
+
+- Apple Music
+- Bandcamp
+- Deezer
+- SoundCloud
+- Spotify
+- TIDAL
 
 ## Telegram delivery mode
 
 Telegram Bot API delivery modes for standard bots are **long polling** via `getUpdates` or **HTTPS webhooks**.
+This bot does **not** use WebSocket.
+Current implementation uses **long polling** only.
 On startup bot clears any old webhook with `deleteWebhook`, then receives updates through `getUpdates`.
 
 ## Configuration
