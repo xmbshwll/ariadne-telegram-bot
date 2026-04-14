@@ -2,6 +2,8 @@
 
 Telegram bot in Go. Uses [`github.com/go-telegram/bot`](https://github.com/go-telegram/bot) for Telegram transport and [`github.com/xmbshwll/ariadne`](https://github.com/xmbshwll/ariadne) for music resolution.
 
+Live instance in [Telegram](https://t.me/ariadne_tg_bot)
+
 User sends song or album link from supported music service. Bot replies with clickable service-name links separated by ` | `.
 
 Example reply:
