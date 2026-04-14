@@ -95,7 +95,7 @@ docker run --rm --env-file .env ariadne-telegram-bot
 
 No inbound ports needed. Bot uses outbound HTTPS long polling.
 
-GitHub Actions workflow `.github/workflows/docker.yml` builds Docker image on pushes, pull requests, and manual dispatch.
+GitHub Actions workflow `.github/workflows/docker.yml` builds Docker image on pushes, pull requests, and manual dispatch. Non-PR runs publish image to `ghcr.io/<owner>/<repo>`.
 
 Apple Music `.p8` handling in Docker:
 
