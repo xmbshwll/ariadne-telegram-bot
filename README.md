@@ -26,10 +26,8 @@ Bot currently resolves **albums only**.
 
 ## Telegram delivery mode
 
-Telegram Bot API does **not** use WebSocket here.
-This bot uses **long polling** only.
-
-On startup bot clears any old webhook with `deleteWebhook`, then starts polling with `getUpdates`.
+Telegram Bot API delivery modes for standard bots are **long polling** via `getUpdates` or **HTTPS webhooks**.
+On startup bot clears any old webhook with `deleteWebhook`, then receives updates through `getUpdates`.
 
 ## Configuration
 
@@ -95,7 +93,9 @@ Run container with env file:
 docker run --rm --env-file .env ariadne-telegram-bot
 ```
 
-No ports needed. Bot uses long polling.
+No inbound ports needed. Bot uses outbound HTTPS long polling.
+
+GitHub Actions workflow `.github/workflows/docker.yml` builds Docker image on pushes, pull requests, and manual dispatch.
 
 Apple Music `.p8` handling in Docker:
 
