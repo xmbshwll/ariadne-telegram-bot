@@ -38,6 +38,7 @@ Required:
 Optional bot env vars:
 
 - `LOG_LEVEL` — `debug`, `info`, `warn`, or `error`. Default: `info`
+- `PORT` — when set, enables HTTP health endpoints on that port. Cloud Run sets this automatically
 
 Optional Ariadne env vars:
 
@@ -93,7 +94,19 @@ Run container with env file:
 docker run --rm --env-file .env ariadne-telegram-bot
 ```
 
-No inbound ports needed. Bot uses outbound HTTPS long polling.
+Optional: expose health endpoints locally:
+
+```bash
+docker run --rm --env-file .env -e PORT=8080 -p 8080:8080 ariadne-telegram-bot
+```
+
+When `PORT` is set, container serves:
+
+- `GET /livez` — liveness, always returns `200 OK` while process is alive
+- `GET /healthz` — startup/health, returns `503 Service Unavailable` until bot startup completes, then `200 OK`
+- `GET /` — simple `200 OK` response for manual checks
+
+Bot still uses outbound HTTPS long polling for Telegram updates.
 
 GitHub Actions workflow `.github/workflows/docker.yml` builds Docker image on pushes, pull requests, and manual dispatch. Non-PR runs publish image to `ghcr.io/<owner>/<repo>`.
 
@@ -119,6 +132,15 @@ docker run --rm \
 ```
 
 Use env-var fallback only when secret-file mount is not available. Env vars are easier to leak through container metadata, shell history, and process inspection.
+
+## Cloud Run
+
+Configure Cloud Run probes against exposed HTTP endpoints:
+
+- startup/health probe: `/healthz`
+- liveness probe: `/livez`
+
+Cloud Run sets `PORT`, so bot enables tiny HTTP probe server there automatically while keeping Telegram long polling in same process. In environments without `PORT`, no probe server starts.
 
 ## Test
 
